@@ -1,0 +1,485 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  CUSTOMER
+  COURIER
+  ADMIN
+  EMPLOYEE
+}
+
+enum OrderStatus {
+  IN_CART
+  PAYMENT_PENDING
+  SEARCHING_COURIER
+  COURIER_ASSIGNED
+  SHOPPING_IN_PROGRESS
+  ON_THE_WAY
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum VerificationStatus {
+  UNVERIFIED
+  PENDING
+  VERIFIED
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  phone         String    @unique
+  passwordHash  String    @map("password_hash")
+  role          UserRole  @default(CUSTOMER)
+  firstName     String    @map("first_name")
+  lastName      String    @map("last_name")
+  dateOfBirth   DateTime? @map("date_of_birth")
+
+  emailVerified    VerificationStatus @default(UNVERIFIED) @map("email_verified")
+  phoneVerified    VerificationStatus @default(UNVERIFIED) @map("phone_verified")
+
+  adminPinHash  String?   @map("admin_pin_hash")
+
+  createdByAdminId String? @map("created_by_admin_id")
+  createdByAdmin   User?   @relation("AdminCreatedUsers", fields: [createdByAdminId], references: [id])
+  createdUsers     User[]  @relation("AdminCreatedUsers")
+
+  isActive      Boolean   @default(true) @map("is_active")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  addresses         Address[]
+  refreshTokens     RefreshToken[]
+  courierProfile    CourierProfile?
+  carts             Cart[]
+  orders            Order[]         @relation("CustomerOrders")
+  courierOrders     Order[]         @relation("CourierOrders")
+  vendorProducts    VendorProduct[] @relation("EmployeeVendorProducts")
+  notifications     Notification[]
+  ratingsGiven      Rating[]        @relation("RaterRatings")
+  ratingsReceived   Rating[]        @relation("RateeRatings")
+  favorites         Favorite[]
+  employeeAssignments EmployeeAssignment[] @relation("EmployeeAssignments")
+  adminAssignments    EmployeeAssignment[] @relation("AdminAssignments")
+  verificationCodes   VerificationCode[]
+
+  @@index([email])
+  @@index([phone])
+  @@index([role])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique @db.VarChar(500)
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime @map("expires_at")
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([token])
+  @@map("refresh_tokens")
+}
+
+model VerificationCode {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  code      String
+  channel   String
+  target    String
+  expiresAt DateTime @map("expires_at")
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([target, code])
+  @@map("verification_codes")
+}
+
+model Address {
+  id        String  @id @default(uuid())
+  userId    String  @map("user_id")
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  fullAddress String @map("full_address") @db.Text
+  city      String
+  district  String
+  neighborhood String?
+  latitude  Float
+  longitude Float
+  isDefault Boolean @default(false) @map("is_default")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  orders    Order[]
+
+  @@index([userId])
+  @@map("addresses")
+}
+
+model Market {
+  id        String  @id @default(uuid())
+  name      String
+  city      String
+  district  String
+  neighborhood String
+  fullAddress  String? @map("full_address") @db.Text
+  latitude  Float
+  longitude Float
+  operatingDays String? @map("operating_days")
+  openTime  String?  @map("open_time")
+  closeTime String?  @map("close_time")
+  imageUrl  String?  @map("image_url") @db.Text
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  vendors           Vendor[]
+  courierProfiles   CourierProfile[]
+  carts             Cart[]
+  orders            Order[]
+  employeeAssignments EmployeeAssignment[]
+  products          Product[]
+
+  @@index([latitude, longitude])
+  @@index([city, district])
+  @@map("markets")
+}
+
+model Vendor {
+  id          String  @id @default(uuid())
+  marketId    String  @map("market_id")
+  market      Market  @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  name        String
+  description String? @db.Text
+  isActive    Boolean @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  vendorProducts VendorProduct[]
+
+  @@index([marketId])
+  @@map("vendors")
+}
+
+model ProductCategory {
+  id        String  @id @default(uuid())
+  name      String  @unique
+  icon      String?
+  sortOrder Int     @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  products  Product[]
+
+  @@map("product_categories")
+}
+
+model Product {
+  id          String  @id @default(uuid())
+  categoryId  String  @map("category_id")
+  category    ProductCategory @relation(fields: [categoryId], references: [id])
+  marketId    String? @map("market_id")
+  market      Market? @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  name        String
+  unit        String  @default("kg")
+  imageUrl    String? @map("image_url")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  vendorProducts VendorProduct[]
+  favorites      Favorite[]
+
+  @@index([categoryId])
+  @@index([marketId])
+  @@map("products")
+}
+
+model VendorProduct {
+  id          String  @id @default(uuid())
+  vendorId    String  @map("vendor_id")
+  vendor      Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  productId   String  @map("product_id")
+  product     Product @relation(fields: [productId], references: [id])
+  price       Float
+  unit        String? @default("kg")
+  photoUrl    String? @map("photo_url")
+
+  employeeId  String?  @map("employee_id")
+  employee    User?    @relation("EmployeeVendorProducts", fields: [employeeId], references: [id])
+
+  qualityRating Float?  @default(5.0) @map("quality_rating")
+  stallLocation String? @map("stall_location")
+
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  cartItems   CartItem[]
+  orderItems  OrderItem[]
+
+  @@unique([vendorId, productId])
+  @@index([vendorId])
+  @@index([productId])
+  @@map("vendor_products")
+}
+
+model CourierProfile {
+  id          String  @id @default(uuid())
+  userId      String  @unique @map("user_id")
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  isAvailable Boolean @default(false) @map("is_available")
+  selectedMarketId String? @map("selected_market_id")
+  selectedMarket   Market? @relation(fields: [selectedMarketId], references: [id])
+
+  baseFee     Float   @default(0) @map("base_fee")
+
+  currentLatitude  Float?  @map("current_latitude")
+  currentLongitude Float?  @map("current_longitude")
+
+  totalEarnings Float @default(0) @map("total_earnings")
+  totalDeliveries Int @default(0) @map("total_deliveries")
+  averageRating Float @default(0) @map("average_rating")
+
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  distanceTiers CourierDistanceTier[]
+  weightTiers   CourierWeightTier[]
+
+  @@index([isAvailable, selectedMarketId])
+  @@map("courier_profiles")
+}
+
+model CourierDistanceTier {
+  id              String  @id @default(uuid())
+  courierProfileId String @map("courier_profile_id")
+  courierProfile  CourierProfile @relation(fields: [courierProfileId], references: [id], onDelete: Cascade)
+  minKm           Float   @map("min_km")
+  maxKm           Float   @map("max_km")
+  percentageIncrease Float @map("percentage_increase")
+  increaseType    String  @default("PERCENTAGE") @map("increase_type")
+  sortOrder       Int     @default(0) @map("sort_order")
+
+  @@index([courierProfileId])
+  @@map("courier_distance_tiers")
+}
+
+model CourierWeightTier {
+  id              String  @id @default(uuid())
+  courierProfileId String @map("courier_profile_id")
+  courierProfile  CourierProfile @relation(fields: [courierProfileId], references: [id], onDelete: Cascade)
+  minKg           Float   @map("min_kg")
+  maxKg           Float   @map("max_kg")
+  percentageIncrease Float @map("percentage_increase")
+  increaseType    String  @default("PERCENTAGE") @map("increase_type")
+  sortOrder       Int     @default(0) @map("sort_order")
+
+  @@index([courierProfileId])
+  @@map("courier_weight_tiers")
+}
+
+model Cart {
+  id        String  @id @default(uuid())
+  userId    String  @map("user_id")
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  marketId  String  @map("market_id")
+  market    Market  @relation(fields: [marketId], references: [id])
+  isActive  Boolean @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  items     CartItem[]
+
+  @@index([userId, isActive])
+  @@map("carts")
+}
+
+model CartItem {
+  id              String  @id @default(uuid())
+  cartId          String  @map("cart_id")
+  cart            Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  vendorProductId String  @map("vendor_product_id")
+  vendorProduct   VendorProduct @relation(fields: [vendorProductId], references: [id])
+  quantity        Float
+  note            String? @db.Text
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@unique([cartId, vendorProductId])
+  @@index([cartId])
+  @@map("cart_items")
+}
+
+model Order {
+  id            String      @id @default(uuid())
+  orderNumber   String      @unique @map("order_number")
+
+  customerId    String      @map("customer_id")
+  customer      User        @relation("CustomerOrders", fields: [customerId], references: [id])
+
+  courierId     String?     @map("courier_id")
+  courier       User?       @relation("CourierOrders", fields: [courierId], references: [id])
+
+  marketId      String      @map("market_id")
+  market        Market      @relation(fields: [marketId], references: [id])
+
+  addressId     String      @map("address_id")
+  address       Address     @relation(fields: [addressId], references: [id])
+
+  status        OrderStatus @default(PAYMENT_PENDING)
+
+  subtotal      Float
+  courierFee    Float       @default(0) @map("courier_fee")
+  serviceFee    Float       @default(0) @map("service_fee")
+  totalAmount   Float       @map("total_amount")
+  totalWeight   Float       @default(0) @map("total_weight")
+
+  distanceKm    Float?      @map("distance_km")
+
+  notes         String?     @db.Text
+
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+  deliveredAt   DateTime?   @map("delivered_at")
+
+  items         OrderItem[]
+  statusHistory OrderStatusHistory[]
+  payment       Payment?
+  ratings       Rating[]
+
+  @@index([customerId])
+  @@index([courierId])
+  @@index([marketId])
+  @@index([status])
+  @@index([orderNumber])
+  @@map("orders")
+}
+
+model OrderItem {
+  id              String  @id @default(uuid())
+  orderId         String  @map("order_id")
+  order           Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  vendorProductId String  @map("vendor_product_id")
+  vendorProduct   VendorProduct @relation(fields: [vendorProductId], references: [id])
+  quantity        Float
+  unitPrice       Float   @map("unit_price")
+  totalPrice      Float   @map("total_price")
+  note            String? @db.Text
+  isCollected     Boolean @default(false) @map("is_collected")
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+model OrderStatusHistory {
+  id        String      @id @default(uuid())
+  orderId   String      @map("order_id")
+  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  fromStatus OrderStatus? @map("from_status")
+  toStatus  OrderStatus @map("to_status")
+  note      String?     @db.Text
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  @@index([orderId])
+  @@map("order_status_history")
+}
+
+model Payment {
+  id            String        @id @default(uuid())
+  orderId       String        @unique @map("order_id")
+  order         Order         @relation(fields: [orderId], references: [id])
+  amount        Float
+  currency      String        @default("TRY")
+  status        PaymentStatus @default(PENDING)
+  method        String        @default("credit_card")
+  providerRef   String?       @map("provider_ref")
+  providerName  String?       @map("provider_name")
+  errorMessage  String?       @map("error_message") @db.Text
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+  completedAt   DateTime?     @map("completed_at")
+
+  @@index([orderId])
+  @@index([status])
+  @@map("payments")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String   @db.Text
+  type      String   @default("info")
+  data      String?  @db.Text
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+model Rating {
+  id        String   @id @default(uuid())
+  orderId   String   @map("order_id")
+  order     Order    @relation(fields: [orderId], references: [id])
+  raterId   String   @map("rater_id")
+  rater     User     @relation("RaterRatings", fields: [raterId], references: [id])
+  rateeId   String   @map("ratee_id")
+  ratee     User     @relation("RateeRatings", fields: [rateeId], references: [id])
+  score     Int
+  comment   String?  @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([orderId, raterId])
+  @@index([rateeId])
+  @@map("ratings")
+}
+
+model Favorite {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String   @map("product_id")
+  product   Product  @relation(fields: [productId], references: [id])
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([userId, productId])
+  @@index([userId])
+  @@map("favorites")
+}
+
+model EmployeeAssignment {
+  id          String   @id @default(uuid())
+  employeeId  String   @map("employee_id")
+  employee    User     @relation("EmployeeAssignments", fields: [employeeId], references: [id])
+  marketId    String   @map("market_id")
+  market      Market   @relation(fields: [marketId], references: [id])
+  assignedById String  @map("assigned_by_id")
+  assignedBy  User     @relation("AdminAssignments", fields: [assignedById], references: [id])
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([employeeId, marketId])
+  @@index([employeeId])
+  @@index([marketId])
+  @@map("employee_assignments")
+}
+
